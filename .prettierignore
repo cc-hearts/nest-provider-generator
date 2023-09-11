@@ -1,0 +1,4 @@
+dist/
+bin/
+_apis/
+*.template.js
