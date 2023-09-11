@@ -1,5 +1,5 @@
 {
-  "name": "nest-provider-generator",
+  "name": "@cc-heart/nest-provider-generator",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -9,6 +9,12 @@
     "prettier": "prettier --write .",
     "coverage": "vitest --coverage",
     "build": "rollup -c"
+  },
+  "files": [
+    "bin"
+  ],
+  "bin": {
+    "nest-provider": "./bin/index.js"
   },
   "keywords": [],
   "author": "cc heart",
@@ -31,6 +37,9 @@
     "prettier": "^3.0.3",
     "rollup": "^3.29.1",
     "rollup-plugin-typescript2": "^0.35.0",
+    "@rollup/plugin-commonjs": "^25.0.4",
+    "@rollup/plugin-json": "^6.0.0",
+    "@rollup/plugin-node-resolve": "^15.2.1",
     "vitest": "^0.34.4"
   }
 }

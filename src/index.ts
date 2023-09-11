@@ -8,11 +8,7 @@ import { getNestCLIPathRoot, shortLine2VariableName } from './utils/shard'
 import { writeProviderFile, writeModuleProviderFile } from './utils/write'
 import { capitalize } from '@cc-heart/utils'
 
-
-
-
-
-const start = async () => {
+export const start = async () => {
   let dryRun = false,
     isExistsEntity = false
   const variable = getCommand()
@@ -82,7 +78,3 @@ const start = async () => {
     console.log(`generator file path: ${filePath} success`)
   }
 }
-
-
-
-start()
