@@ -10,25 +10,15 @@ npm install @cc-heart/nest-provider-generator
 
 ## Usage
 
-mkdir `src/utils/provider.factory.ts` and write `ProviderFactory` as a export function
+Created at the root of the project `nestProvider.config.js`
 
 example:
 
 ```ts
-import { DataSource } from 'typeorm';
-const DATA_SOURCE = 'data_source'
-
-type ctor = { new (...args: any): object };
-
-export const ProviderFactory = (provide: string | ctor, repository: ctor) => {
-  return {
-    provide,
-    useFactory: (dataSource: DataSource) =>
-      dataSource.getRepository(repository),
-    inject: [DATA_SOURCE],
-  };
-};
-
+export default {
+  // providerFactory path
+  providerFactoryPath: '../../utils/provider.factory.js',
+}
 ```
 
 Use under the nest root `nest-provider <module_name>` to generator entity provider

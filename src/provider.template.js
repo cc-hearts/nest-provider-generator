@@ -1,5 +1,5 @@
-import { ProviderFactory } from '../../utils/provider.factory';
-{{#if isExistsEntity}}
+import { ProviderFactory } from '{{providerFactoryPath}}';
+{{#if isExistsEntity }}
 import { {{ providerEntityImportName }} } from '../entities/{{ providerEntityFileName }}.entity';
 {{ else }}
 class {{ providerEntityImportName }} {}

@@ -1,4 +1,4 @@
-import typescript from 'rollup-plugin-typescript2'
+import typescript from '@rollup/plugin-typescript'
 import resolve from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs'
 import Json from '@rollup/plugin-json'
@@ -8,5 +8,11 @@ export default {
     file: './bin/cli.mjs',
     format: 'esm',
   },
-  plugins: [Json(), resolve(), commonjs(), typescript()],
+  external: [
+    'rollup',
+    '@rollup/plugin-commonjs',
+    '@rollup/plugin-typescript',
+    '@rollup/plugin-node-resolve',
+  ],
+  plugins: [Json(), typescript(), resolve(), commonjs()],
 }

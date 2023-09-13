@@ -1,11 +1,17 @@
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile as readFile$1, mkdir, writeFile as writeFile$1 } from 'node:fs/promises';
 import require$$2, { existsSync } from 'fs';
-import * as process$1 from 'process';
 import { argv } from 'process';
-import { resolve as resolve$1, relative } from 'path';
+import { resolve as resolve$1, join, relative } from 'path';
+import { readFile, stat, rm, writeFile } from 'fs/promises';
+import 'url';
+import * as Rollup from 'rollup';
+import commonjs$1 from '@rollup/plugin-commonjs';
+import typescript$3 from '@rollup/plugin-typescript';
+import resolve$2 from '@rollup/plugin-node-resolve';
 import require$$1 from 'tty';
 import require$$1$1 from 'util';
 import require$$0$1 from 'os';
+import { fileURLToPath } from 'node:url';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -8254,6 +8260,156 @@ function isObject$1(val) {
  */
 const capitalize = (target) => (target.charAt(0).toUpperCase() + target.slice(1));
 
+const DEFAULT_CONFIG_FILES = [
+    'nestProvider.config.js',
+    'nestProvider.config.mjs',
+    'nestProvider.config.ts',
+    'nestProvider.config.cjs',
+    'nestProvider.config.mts',
+    'nestProvider.config.cts',
+];
+
+async function getPackage(path) {
+    path = path || resolve$1(process.cwd(), 'package.json');
+    const packages = await readFile(path, { encoding: 'utf-8' });
+    return JSON.parse(packages);
+}
+
+async function isESM(path) {
+    if (path) {
+        if (isCommonJsExtension(path))
+            return false;
+        const file = await readFile(path, 'utf8');
+        return !file.includes('module.exports');
+    }
+    return (await getPackage()).type === 'module';
+}
+function getFileExtension(path) {
+    return path.split('.').slice(-1)[0];
+}
+function isTS(path) {
+    return ['mts', 'cts', 'ts'].includes(getFileExtension(path));
+}
+function isCommonJsExtension(path) {
+    return ['cts', 'cjs'].includes(getFileExtension(path));
+}
+async function isDirectory(path) {
+    const file = await stat(path);
+    return file.isDirectory();
+}
+
+/**
+ * Step up to find the most recent file
+ *
+ * @param path
+ * @returns
+ */
+async function findUpPkg(path, fileName) {
+    if (fileName === void 0) {
+        throw new Error('fileName is required');
+    }
+    let curPath;
+    if (await isDirectory(path)) {
+        curPath = resolve$1(path, 'package.json');
+    }
+    else {
+        curPath = resolve$1(path, '../package.json');
+    }
+    if (existsSync(curPath)) {
+        return curPath;
+    }
+    if (path === '/')
+        return null;
+    return findUpPkg(resolve$1(path, '..'), fileName);
+}
+
+const defaultConfig = {
+    providerFactoryPath: '',
+};
+async function getWorkspacePath() {
+    const workspacePkgPath = await findUpPkg(process.cwd(), 'package.json');
+    if (!workspacePkgPath)
+        return null;
+    return resolve$1(workspacePkgPath, '..');
+}
+async function loadingConfig() {
+    let resolvePath;
+    const workspacePath = await getWorkspacePath();
+    if (workspacePath === null)
+        return null;
+    for (const fileName of DEFAULT_CONFIG_FILES) {
+        const configPath = join(workspacePath, fileName);
+        if (existsSync(configPath)) {
+            resolvePath = configPath;
+            break;
+        }
+    }
+    if (!resolvePath) {
+        throw new Error('Not found nestProvider.config file');
+    }
+    const rollupConfig = {
+        input: resolvePath,
+        plugins: loadRollupPlugins(resolvePath),
+    };
+    const outputOptions = {
+        file: join(workspacePath, './__config__.mjs'),
+        format: 'esm',
+    };
+    const rmPathList = [];
+    const bundlePath = await transformTsToJs(
+    // @ts-ignore
+    resolvePath, rollupConfig, outputOptions);
+    if (rollupConfig.input !== bundlePath) {
+        rmPathList.push(bundlePath);
+    }
+    rollupConfig.input = bundlePath;
+    const bundle = await Rollup.rollup(rollupConfig);
+    await bundle.write(outputOptions);
+    rmPathList.push(outputOptions.file);
+    try {
+        // @ts-ignore
+        const { default: config } = await import(outputOptions.file);
+        return {
+            ...defaultConfig,
+            ...config,
+        };
+    }
+    catch (e) {
+    }
+    finally {
+        rmPathList.forEach((path) => rm(path));
+    }
+    return defaultConfig;
+}
+async function transformTsToJs(filePath, inputOptions, outputOptions) {
+    const workspacePath = await getWorkspacePath();
+    if (workspacePath === null)
+        return filePath;
+    if (isTS(filePath)) {
+        inputOptions.plugins || (inputOptions.plugins = []);
+        if (Array.isArray(inputOptions.plugins)) {
+            inputOptions.plugins = [...inputOptions.plugins, typescript$3()];
+        }
+        const bundle = await compileBundle(inputOptions);
+        const { output } = await bundle.generate(outputOptions);
+        const { code } = output[0];
+        const tsToJsPath = join(workspacePath, './__config.__tsTransformJs.mjs');
+        await writeFile(tsToJsPath, code, 'utf8');
+        return tsToJsPath;
+    }
+    return filePath;
+}
+async function loadRollupPlugins(path) {
+    const plugins = [resolve$2()];
+    if (!(await isESM(path))) {
+        plugins.push(commonjs$1());
+    }
+    return plugins;
+}
+async function compileBundle(inputOptions) {
+    return await Rollup.rollup(inputOptions);
+}
+
 const shortLine2VariableName = (shortLineArray) => {
     return shortLineArray.map((_) => capitalize(_)).join('');
 };
@@ -8262,9 +8418,15 @@ function getArgv() {
 }
 async function getNestCLIPathRoot() {
     try {
-        let nestCliJson = await readFile(resolve$1(process.cwd(), 'nest-cli.json'), { encoding: 'utf-8' });
+        const workspace = await getWorkspacePath();
+        if (!workspace)
+            return null;
+        let nestCliJson = await readFile$1(resolve$1(workspace, 'nest-cli.json'), { encoding: 'utf-8' });
         nestCliJson = JSON.parse(nestCliJson);
         if (isObject$1(nestCliJson)) {
+            if (Reflect.get(nestCliJson, 'monorepo') === true) {
+                return process.cwd();
+            }
             const sourceRoot = Reflect.get(nestCliJson, 'sourceRoot');
             const pathRoot = resolve$1(process.cwd(), sourceRoot);
             return pathRoot;
@@ -54465,16 +54627,16 @@ function isExistsImportProviderName(elements, providerName) {
 
 const writeProviderFile = async (fileDirPath, filePath, code) => {
     await mkdir(fileDirPath, { recursive: true });
-    await writeFile(filePath, code, { encoding: 'utf-8' });
+    await writeFile$1(filePath, code, { encoding: 'utf-8' });
 };
 const writeModuleProviderFile = async (fileDirPath, variable, importRelativePath, exportProviderName) => {
     const moduleName = `${variable}.module.ts`;
     const modulePath = resolve$1(fileDirPath, '..', moduleName);
     if (existsSync(modulePath)) {
-        const sourceCode = await readFile(modulePath, { encoding: 'utf-8' });
+        const sourceCode = await readFile$1(modulePath, { encoding: 'utf-8' });
         const code = generatorModulesProvider(sourceCode, `import {${exportProviderName}} from './${importRelativePath}'`, exportProviderName);
         if (code) {
-            await writeFile(modulePath, code, { encoding: 'utf-8' });
+            await writeFile$1(modulePath, code, { encoding: 'utf-8' });
             console.log(`update ${moduleName} file success`);
         }
     }
@@ -54482,6 +54644,10 @@ const writeModuleProviderFile = async (fileDirPath, variable, importRelativePath
 
 const start = async () => {
     let dryRun = false, isExistsEntity = false;
+    const config = await loadingConfig();
+    if (!config.providerFactoryPath) {
+        throw new Error('Not found providerFactoryPath in nestProvider.config file');
+    }
     const variable = getCommand();
     const originRoot = await getNestCLIPathRoot();
     if (!originRoot)
@@ -54492,7 +54658,7 @@ const start = async () => {
         .join('_');
     const pathRoot = resolve$1(originRoot, variable);
     const providerEntityImportName = shortLine2VariableName(variable.split('-'));
-    if (existsSync(resolve$1(process$1.cwd(), pathRoot, `entities/${variable}.entity.ts`))) {
+    if (existsSync(resolve$1(pathRoot, `entities/${variable}.entity.ts`))) {
         isExistsEntity = true;
     }
     const providerEntityFileName = variable;
@@ -54502,7 +54668,7 @@ const start = async () => {
         ...variable.split('-'),
         'provider',
     ]);
-    const templateCode = await readFile(resolve$1(__dirname, './template.tmpl.js'), {
+    const templateCode = await readFile$1(resolve$1(fileURLToPath(import.meta.url), '..', '..', './src/provider.template.js'), {
         encoding: 'utf-8',
     });
     const templateFn = lib$d.compile(templateCode);
@@ -54513,8 +54679,9 @@ const start = async () => {
         providerNameUpper,
         exportName,
         isExistsEntity,
+        providerFactoryPath: config.providerFactoryPath,
     });
-    const fileDirPath = resolve$1(process$1.cwd(), pathRoot, 'providers');
+    const fileDirPath = resolve$1(pathRoot, 'providers');
     const filePath = resolve$1(fileDirPath, `${variable}.provider.ts`);
     if (existsSync(filePath)) {
         dryRun = true;
@@ -54523,7 +54690,7 @@ const start = async () => {
         console.log(`dry run generator file path: ${filePath} success`);
     }
     else {
-        let importRelativePath = relative(resolve$1(process$1.cwd(), pathRoot), filePath);
+        let importRelativePath = relative(resolve$1(pathRoot), filePath);
         importRelativePath = importRelativePath.substring(0, importRelativePath.lastIndexOf('.'));
         await Promise.all([
             writeProviderFile(fileDirPath, filePath, code),

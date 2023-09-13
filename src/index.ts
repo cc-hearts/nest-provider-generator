@@ -3,14 +3,19 @@ import { existsSync } from 'fs'
 import { compile } from 'handlebars'
 import { getCommand } from './command'
 import { relative, resolve } from 'path'
-import * as process from 'process'
 import { getNestCLIPathRoot, shortLine2VariableName } from './utils/shard'
 import { writeProviderFile, writeModuleProviderFile } from './utils/write'
 import { capitalize } from '@cc-heart/utils'
+import { loadingConfig } from './config/loadConfig'
+import { fileURLToPath } from 'node:url'
 
 export const start = async () => {
   let dryRun = false,
     isExistsEntity = false
+  const config = await loadingConfig()
+  if (!config.providerFactoryPath) {
+    throw new Error('Not found providerFactoryPath in nestProvider.config file')
+  }
   const variable = getCommand()
   const originRoot = await getNestCLIPathRoot()
   if (!originRoot) return
@@ -20,11 +25,7 @@ export const start = async () => {
     .join('_')
   const pathRoot = resolve(originRoot, variable)
   const providerEntityImportName = shortLine2VariableName(variable.split('-'))
-  if (
-    existsSync(
-      resolve(process.cwd(), pathRoot, `entities/${variable}.entity.ts`),
-    )
-  ) {
+  if (existsSync(resolve(pathRoot, `entities/${variable}.entity.ts`))) {
     isExistsEntity = true
   }
   const providerEntityFileName = variable
@@ -35,7 +36,12 @@ export const start = async () => {
     'provider',
   ])
   const templateCode = await readFile(
-    resolve(__dirname, './template.tmpl.js'),
+    resolve(
+      fileURLToPath(import.meta.url),
+      '..',
+      '..',
+      './src/provider.template.js',
+    ),
     {
       encoding: 'utf-8',
     },
@@ -48,20 +54,17 @@ export const start = async () => {
     providerNameUpper,
     exportName,
     isExistsEntity,
+    providerFactoryPath: config.providerFactoryPath,
   })
-  const fileDirPath = resolve(process.cwd(), pathRoot, 'providers')
+  const fileDirPath = resolve(pathRoot, 'providers')
   const filePath = resolve(fileDirPath, `${variable}.provider.ts`)
-
   if (existsSync(filePath)) {
     dryRun = true
   }
   if (dryRun) {
     console.log(`dry run generator file path: ${filePath} success`)
   } else {
-    let importRelativePath = relative(
-      resolve(process.cwd(), pathRoot),
-      filePath,
-    )
+    let importRelativePath = relative(resolve(pathRoot), filePath)
     importRelativePath = importRelativePath.substring(
       0,
       importRelativePath.lastIndexOf('.'),
